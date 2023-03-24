@@ -1,0 +1,224 @@
+﻿<html>
+<head>
+    <meta charset="utf-8">
+    <title></title>
+    <style>
+        .videoElement {
+            width: 500px;
+            height: 375px;
+            background-color: #666;
+            border: 5px #333 solid;
+        }
+
+        .loader {
+            border: 16px solid #f3f3f3; /* Light grey */
+            border-top: 16px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 120px;
+            height: 120px;
+            animation: spin 2s linear infinite;
+            position: relative;
+            margin: 0 auto;
+            top: 50%;
+        }
+
+        table, th, td {
+            border: 1px solid black;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 15px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        #loaderDiv {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            background-color: #000;
+            opacity: 0.3;
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body>
+    <div id="loaderDiv" style="display: none"><div class="loader"></div></div>
+    <table>
+        <tr>
+            <td><video autoplay id="videoElement" class="videoElement"></video></td>
+            <td><button id="recognizeBtn">Recognize</button></td>
+            <td><canvas id="img" class="videoElement" style="display: none"></canvas></td>
+        </tr>
+    </table>
+    <h1>Result</h1>
+    <div id="analyzisDiv"></div>
+    <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+    <script type="text/javascript">
+
+        (function () {
+            var imageHeight = 375;
+            var imageWidth = 500;
+
+            var video = document.querySelector("#videoElement"), canvas;
+
+            var _RealeyesitEnvDetectParams = _RealeyesitEnvDetectParams || {};
+            _RealeyesitEnvDetectParams._callback = environmentalDetectionCallback;
+
+            if (navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ video: true })
+                    .then(function (stream) {
+                        video.srcObject = stream;
+                        $("#container").show();
+                    })
+                    .catch(function (err0r) {
+                        alert("To continue exercise please refresh the page and allow your webcam!");
+                    });
+            }
+
+            function environmentalDetectionCallback(result) {
+                if (!result.checksPassed) {
+                    alert("Please use Firefox or Chrome and be equipped by a webcam!");
+                }
+            }
+
+            function UserAction(imageData) {
+
+                var imageDataString = imageData.split("data:image/png;base64,")[1];
+
+                $.ajax({
+                    url: '/api/detect/',
+                    type: 'POST',
+                    data: { "": imageDataString },
+                    beforeSend: function () {
+                        $("#loaderDiv").show();
+                    },
+                    success: function (response) {
+
+                        if (response != null) {
+
+                            $("#img").show();
+
+                            var analysiz = "<span><b>Number of faces: </b>" + response.FaceDetails.length + "</span>";
+                            var faces = "<table>";
+
+                            $.each(response.FaceDetails, function (i, face) {
+                                faces += "<thead><tr><td>#</td><td><b>Gender</b></td><td><b>Age range</b></td></tr></thead>" +
+                                    "<tbody><tr><td>" + (i + 1) + "</td><td>" + face.Gender.Value.Value +
+                                    "</td><td>" + face.AgeRange.Low + " and " + face.AgeRange.High + "</td></tr></tbody>";
+
+                                ShowBoundingBoxPositions(imageHeight, imageWidth,
+                                    face.BoundingBox, response.OrientationCorrection?.Value);
+
+                            });
+                            faces += "</table>";
+                            $("#analyzisDiv").html(analysiz + " <br/> " + faces);
+                        }
+                    },
+                    complete: function () {
+
+                        $("#loaderDiv").hide();
+                    },
+                    error: function (request, message, error) {
+                    }
+                });
+            }
+
+            function ShowBoundingBoxPositions(imageHeight, imageWidth, box, rotation) {
+                var left = 0;
+                var top = 0;
+
+                if (rotation == null) {
+                    console.log("No estimated estimated orientation. Check Exif data.");
+                    return;
+                }
+                //Calculate face position based on image orientation.
+                switch (rotation) {
+                    case "ROTATE_0":
+                        left = imageWidth * box.Left;
+                        top = imageHeight * box.Top;
+                        break;
+                    case "ROTATE_90":
+                        left = imageHeight * (1 - (box.Top + box.Height));
+                        top = imageWidth * box.Left;
+                        break;
+                    case "ROTATE_180":
+                        left = imageWidth - (imageWidth * (box.Left + box.Width));
+                        top = imageHeight * (1 - (box.Top + box.Height));
+                        break;
+                    case "ROTATE_270":
+                        left = imageHeight * box.Top;
+                        top = imageWidth * (1 - box.Left - box.Width);
+                        break;
+                    default:
+                        console.log("No estimated orientation information. Check Exif data.");
+                        return;
+                }
+
+                var cvs = document.getElementById('img');
+                var ctx = cvs.getContext('2d');
+
+                ctx.beginPath();
+                ctx.rect(left, top, imageWidth * box.Width, imageHeight * box.Height);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = 'yellow';
+                ctx.stroke();
+
+                //Display face location information.
+                console.log("Left: " + left);
+                console.log("Top: " + top);
+                console.log("Face Width: " + imageWidth * box.Width);
+                console.log("Face Height: " + imageHeight * box.Height);
+
+            }
+
+            function takeSnapshot() {
+
+                var context;
+                var width = video.offsetWidth
+                    , height = video.offsetHeight;
+
+                canvas = document.getElementById('img');;
+                canvas.width = width;
+                canvas.height = height;
+
+                context = canvas.getContext('2d');
+                context.drawImage(video, 0, 0, width, height);
+                var imageData = canvas.toDataURL('image/png');
+
+                var imageObj = new Image();
+                imageObj.onload = function () {
+                    context.drawImage(video, 0, 0, imageWidth, imageHeight);
+                };
+                imageObj.src = imageData;
+                UserAction(imageData);
+            }
+
+            $("#recognizeBtn").click(function () {
+                takeSnapshot();
+            });
+
+            //var browser = adapter.browserDetails.browser;
+            //var browserVersion = adapter.browserDetails.version;
+
+            var envDetect = document.createElement('script');
+            envDetect.type = 'text/javascript';
+            envDetect.async = true;
+            envDetect.src = 'https://codesdwncdn.realeyesit.com/environment-checker/release/2/Realeyesit.EnvironmentalDetectionAPI.js';
+            var s = document.getElementsByTagName('script')[0];
+            s.parentNode.insertBefore(envDetect, s);
+
+        })();
+
+    </script>
+</body>
+</html>
